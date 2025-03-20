@@ -7,7 +7,7 @@ on:
   pull_request:
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
     strategy:
       matrix:
@@ -72,8 +72,51 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: zed/target/release/zed.exe
 
+  build-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, archlinux]
+        backend: [vulkan, opengl]
+        include:
+          - os: ubuntu-latest
+            artifact_name: zed-linux
+          - os: archlinux
+            artifact_name: zed-arch
+
+    steps:
+      - name: Checkout self
+        uses: actions/checkout@v4
+
+      - name: Checkout Zed
+        uses: actions/checkout@v4
+        with:
+          repository: zed-industries/zed
+          ref: main
+          path: zed
+
+      - name: Install dependencies
+        run: |
+          sudo apt update && sudo apt install -y build-essential pkg-config libx11-dev libxi-dev libgl1-mesa-dev
+
+      - name: Install rust nightly
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly
+          override: true
+
+      - name: Build release
+        working-directory: zed
+        run: cargo build --release
+
+      - name: Archive build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: zed/target/release/zed
+
   release:
-    needs: build
+    needs: [build-windows, build-linux]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     permissions:
@@ -91,11 +134,15 @@ jobs:
 
       - name: Create release directories and zip
         run: |
-          mkdir -p zed-release zed-release-opengl
+          mkdir -p zed-release zed-release-opengl zed-linux zed-arch
           mv artifacts/zed-release/zed.exe zed-release/
           mv artifacts/zed-release-opengl/zed.exe zed-release-opengl/
+          mv artifacts/zed-linux/zed zed-linux/
+          mv artifacts/zed-arch/zed zed-arch/
           zip -r zed-windows.zip zed-release/*
           zip -r zed-windows-opengl.zip zed-release-opengl/*
+          tar -czvf zed-linux.tar.gz -C zed-linux .
+          tar -czvf zed-arch.tar.gz -C zed-arch .
 
       - name: Upload release build artifacts to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -107,3 +154,5 @@ jobs:
           files: |
             zed-windows.zip
             zed-windows-opengl.zip
+            zed-linux.tar.gz
+            zed-arch.tar.gz
